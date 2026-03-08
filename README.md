@@ -26,7 +26,7 @@ By translating the chatty, broadcast-heavy ROS 2 environment into a streamlined,
 
 ---
 
-## 🔒 Networking: "Dark Robot" vs. "Fleet Gateway"
+## 🔒 Networking: "Dark Robot"
 
 We use `rmw_cyclonedds_cpp` to move the security perimeter from the network hardware to the **OpenZiti Identity**. This allows for two distinct deployment models:
 
