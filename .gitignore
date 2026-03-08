@@ -1,0 +1,34 @@
+# --- OpenZiti Security (CRITICAL) ---
+# Never commit your private keys or identities to GitHub
+*.json
+!package.json
+!manifest.json
+# If you use a specific folder for identities, you can ignore the whole folder:
+identities/
+
+# --- ROS 2 / Colcon Build Artifacts ---
+build/
+install/
+log/
+.pytest_cache/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.env
+
+# --- C++ / IDEs ---
+# Ignore vcpkg binaries and local build tools
+vcpkg/
+.vscode/
+.idea/
+*.swp
+*.user
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
