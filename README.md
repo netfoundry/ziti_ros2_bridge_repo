@@ -1,5 +1,4 @@
 # Secure ROS 2 Teleop via OpenZiti
-(**Under Construction**)
 
 This repository provides an example **Zero Trust, identity-based** remote control and telemetry system for ROS 2 based robots. By bridging the ROS 2 bus with an **OpenZiti** overlay network, it eliminates the need for VPNs, open firewall ports, or static IPs. Most remote ROS 2 architectures attempt to "stretch" the local network across a VPN, forcing the remote controller to act as a full ROS 2 node. This approach is plagued by DDS Multicast limitations, high overhead, and extreme sensitivity to internet latency.
 
