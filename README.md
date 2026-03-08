@@ -134,6 +134,8 @@ This demo utilizes a **NetFoundry Managed Network** to provide a secure, global 
     source control/bin/activate
     python3 demo_controller.py --id_json ~/pilot1.json --primary_gw robot1 --ns robot1 --service control.cmd.svc
     ``` 
+    * **ctrl-c** to exit
+
     **Expected output pilot terminal:**
     ```text
     [Dials] robot1...
