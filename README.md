@@ -21,6 +21,7 @@ By translating the chatty, broadcast-heavy ROS 2 environment into a streamlined,
 * **Pilot (Remote):** A lightweight Python controller requiring **zero ROS 2 dependencies**.
 * **Robot Bridge (Local):** A C++ node translating Ziti-native JSON into ROS 2 messages.
 * **Networking:** Discovery logic that can be isolated to a single robot or extended to an entire fleet via a Gateway model.
+* **Naming**: Namespace and ziti identity should match on the bridged Robots. 
 
 ![Diagram](isolated_robot.png)
 
@@ -164,7 +165,7 @@ This demo utilizes a **NetFoundry Managed Network** to provide a secure, global 
 ### Appendix
 
 ### (Optional) The "Fleet Gateway" (Subtending Robots) 
-In this mode, the Ziti-enabled robot acts as a **Secure Ingress** for other robots on the same local subnet that do **not** have their own Ziti identities.
+In this mode, the Ziti-enabled robot acts as a **Secure Ingress** for other robots on the same local subnet that do **not** have their own Ziti identities. Direct commands to them by namespace.
 * **Gateway Logic:** The Bridge listens on both `lo` (for the host) and a physical interface (e.g., `wlan0`).
 * **Subtending Access:** To ensure the gateway actively finds and communicates with other robots on the LAN, the <Discovery> block with explicit <Peers> is required.
 * **Interface Inclusion:** You must update the `CYCLONEDDS_URI` to include the physical network interface:
