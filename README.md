@@ -37,6 +37,15 @@ We use `rmw_cyclonedds_cpp` to move the security perimeter from the network hard
 
 ---
 
+## 🛠️ System Requirements
+
+[!IMPORTANT]
+
+**Operating System:** Ubuntu 24.04 LTS (Noble Numbat)  
+**ROS 2 Distribution:** Jazzy Jalisco  
+
+---
+
 ##  Deployment & Build
 
 ### 1. Robot Environment
@@ -114,11 +123,13 @@ This demo utilizes a **NetFoundry Managed Network** to provide a secure, global 
 ## Test Service Connectivity
 
 1. **Robot1:** Start the bridge and demo ros2 robot in two separate terminals
-* **Start Bridge terminal 1:** ```bash
+* **Start Bridge terminal 1:** 
+    ```bash
     source ~/.bashrc
     ros2 run ziti_ros2_bridge ziti_bridge_node --ros-args  -p ziti_context_path:=$HOME/"robot1.json" -p ziti_identity_name:="robot1"  -p ziti_service_name:="control.cmd.svc" -r __node:=ziti_bridge
     ```
-* **Start robot1 terminal 2:** ```bash
+* **Start robot1 terminal 2:** 
+    ```bash
     source ~/.bashrc
     cd $ROS2_WS/src/ziti_ros2_bridge_repo/scripts
     python3 demo_robot.py --namespace robot1
