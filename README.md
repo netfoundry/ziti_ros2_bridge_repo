@@ -46,7 +46,7 @@ export ROS2_WS=~/ros2_ws
 mkdir -p $ROS2_WS/src
 cd $ROS2_WS/src
 sudo apt install -y git
-git clone https://github.com/r-caamano/ziti_ros2_bridge_repo.git
+git clone https://github.com/netfoundry/ziti_ros2_bridge_repo.git
 cd ziti_ros2_bridge_repo/scripts
 chmod +x setup_robot.sh
 ./setup_robot.sh && source ~/.bashrc
@@ -79,7 +79,7 @@ sudo apt install -y python3-venv python3-pip git
 # Setup repository
 mkdir -p ~/repos && cd ~/repos
 if [ ! -d "ziti_ros2_bridge_repo" ]; then
-    git clone https://github.com/r-caamano/ziti_ros2_bridge_repo.git
+    git clone https://github.com/netfoundry/ziti_ros2_bridge_repo.git
 fi
 cd ziti_ros2_bridge_repo/scripts
 
