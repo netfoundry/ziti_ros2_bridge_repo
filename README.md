@@ -43,7 +43,6 @@ We use `rmw_cyclonedds_cpp` to move the security perimeter from the network hard
 
 **Operating System:** Ubuntu 24.04 LTS (Noble Numbat)  
 **ROS 2 Distribution:** Jazzy Jalisco  
-**Hardware Architecture:** x86_64
 
 ---
 
