@@ -10,7 +10,6 @@
 #include <unistd.h>
 #include "rapidjson/document.h"
 #include "rapidjson/error/en.h"
-#include "rapidjson/document.h"
 #include "rapidjson/writer.h"       
 #include "rapidjson/stringbuffer.h" 
 #include <fcntl.h>
@@ -88,33 +87,60 @@ public:
 
     ~ZitiBridge() {
         stop_all_robots();
-        if (ziti_thread_.joinable()) ziti_thread_.join();
-    }
+        if (srv_cmd_ >= 0) {
+            close(srv_cmd_);   // unblocks Ziti_accept() in run_ziti_cmd_loop
+            srv_cmd_ = -1;
+        }
+        if (ziti_thread_.joinable()) ziti_thread_.join();  // wait for accept loop to exit
 
+        // Now safe to join all session threads
+        std::lock_guard<std::mutex> lk(session_mutex_);
+        for (auto& t : session_threads_){
+            if (t.joinable()) t.join();
+        }
+    }
+        
     std::string process_command(char* json_raw) {
         rapidjson::Document d;
         if (d.Parse(json_raw).HasParseError()) return "";
-        if (d.HasMember("ns") && d.HasMember("topic")) {
-            std::string ns = d["ns"].GetString();
-            std::string topic = d["topic"].GetString();
-            std::string full_topic = "/" + ns + "/" + topic;
+        if (!d.HasMember("ns") || !d["ns"].IsString()) return "";
+        if (!d.HasMember("topic") || !d["topic"].IsString()) return "";
 
+        std::string ns = d["ns"].GetString();
+        std::string topic = d["topic"].GetString();
+        std::string full_topic = "/" + ns + "/" + topic;
+        std::string sub_topic  = "/" + ns + "/joint_states";
+
+        bool need_pub = false;
+        bool need_sub = false;
+        {
             std::lock_guard<std::mutex> lock(data_mutex_);
-            if (pubs_.find(full_topic) == pubs_.end()) {
-                pubs_[full_topic] = this->create_publisher<geometry_msgs::msg::Twist>(full_topic, 10);
-            }
-            if (subs_.find(ns) == subs_.end()) {
-                std::string sub_topic = "/" + ns + "/joint_states";
-                auto sensor_qos = rclcpp::SensorDataQoS();
-                subs_[ns] = this->create_subscription<sensor_msgs::msg::JointState>(
-                    sub_topic, sensor_qos,
-                    [this, ns](const sensor_msgs::msg::JointState::SharedPtr msg) {
-                        if (!msg->position.empty()) {
-                            std::lock_guard<std::mutex> lock_cb(this->data_mutex_);
-                            this->robot_positions_[ns] = msg->position[0];
-                        }
-                    });
-            }
+            need_pub = (pubs_.find(full_topic) == pubs_.end());
+            need_sub = (subs_.find(ns) == subs_.end());
+        }
+
+        decltype(pubs_)::mapped_type new_pub;
+        decltype(subs_)::mapped_type new_sub;
+        if (need_pub)
+            new_pub = this->create_publisher<geometry_msgs::msg::Twist>(full_topic, 10);
+        if (need_sub)
+            new_sub = this->create_subscription<sensor_msgs::msg::JointState>(
+                sub_topic, rclcpp::SensorDataQoS(),
+                [this, ns](const sensor_msgs::msg::JointState::SharedPtr msg) {
+                    if (!msg->position.empty()) {
+                        std::lock_guard<std::mutex> lk(data_mutex_);
+                        robot_positions_[ns] = msg->position[0];
+                    }
+                });
+
+        // ── Step 3: insert + publish under lock ──
+        {
+            std::lock_guard<std::mutex> lock(data_mutex_);
+            if (need_pub && pubs_.find(full_topic) == pubs_.end())
+                pubs_[full_topic] = std::move(new_pub);
+            if (need_sub && subs_.find(ns) == subs_.end())
+                subs_[ns] = std::move(new_sub);
+
             auto twist_msg = geometry_msgs::msg::Twist();
             if (d.HasMember("lx") && d["lx"].IsNumber()) twist_msg.linear.x = d["lx"].GetDouble();
             if (d.HasMember("az") && d["az"].IsNumber()) twist_msg.angular.z = d["az"].GetDouble();
@@ -144,100 +170,109 @@ public:
                 // THE RESTORED LOG:
                 RCLCPP_INFO(this->get_logger(), ">>> NEW CONTROLLER SESSION: [%s]", caller_id.c_str());
 
-                std::thread([this, clt, caller_id]() {
-                    this->handle_session(clt, caller_id);
-                }).detach();
+                {
+                    std::lock_guard<std::mutex> lk(session_mutex_);
+                    session_threads_.emplace_back([this, clt, caller_id]() {
+                        this->handle_session(clt, caller_id);
+                    });
+                }
             }
         }
     }
 
     void handle_session(ziti_socket_t clt, std::string caller_id) {
-        char buf[2048];
-        std::string last_active_ns = "";
+    char buf[2048];
+    std::string accum;                  // ← accumulator for partial messages
+    std::string last_active_ns = "";
 
-        RCLCPP_INFO(this->get_logger(), "Session started for: %s", caller_id.c_str());
+    RCLCPP_INFO(this->get_logger(), "Session started for: %s", caller_id.c_str());
 
-        while (rclcpp::ok()) {
-            // Standard blocking read - Ziti's SDK handles the 'wait' internally
-            // This is the most stable way to prevent "Broken Pipe" crashes
-            ssize_t n = read(clt, buf, sizeof(buf) - 1);
-            
-            if (n > 0) {
-                buf[n] = '\0';
-                last_active_ns = process_command(buf);
+    while (rclcpp::ok()) {
+        ssize_t n = read(clt, buf, sizeof(buf) - 1);
 
-                // Fetch Telemetry
-                double current_pos = 0.0;
-                if (!last_active_ns.empty()) {
-                    std::lock_guard<std::mutex> lock(data_mutex_);
-                    if (robot_positions_.count(last_active_ns)) {
-                        current_pos = robot_positions_[last_active_ns];
-                    }
+        if (n > 0) {
+            accum.append(buf, n);       // ← append raw bytes to accumulator
+
+            // Process all complete newline-delimited messages in the buffer
+            size_t pos;
+            while ((pos = accum.find('\n')) != std::string::npos) {
+                std::string msg = accum.substr(0, pos);
+                accum.erase(0, pos + 1);
+
+                if (msg.empty()) continue;
+                last_active_ns = process_command(msg.data());
+            }
+
+            // Fetch Telemetry
+            double current_pos = 0.0;
+            if (!last_active_ns.empty()) {
+                std::lock_guard<std::mutex> lock(data_mutex_);
+                if (robot_positions_.count(last_active_ns)) {
+                    current_pos = robot_positions_[last_active_ns];
                 }
+            }
 
-                // Construct feedback
-                rapidjson::Document d;
-                d.SetObject();
-                rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
+            // Construct feedback
+            rapidjson::Document d;
+            d.SetObject();
+            rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
+            d.AddMember("ns", rapidjson::Value(last_active_ns.c_str(), allocator).Move(), allocator);
+            rapidjson::Value js_obj(rapidjson::kObjectType);
+            js_obj.AddMember("position", current_pos, allocator);
+            d.AddMember("joint_states", js_obj, allocator);
 
-                // Match the namespace key
-                d.AddMember("ns", rapidjson::Value(last_active_ns.c_str(), allocator).Move(), allocator);
+            // Serialize
+            rapidjson::StringBuffer buffer;
+            rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+            d.Accept(writer);
+            std::string feedback = std::string(buffer.GetString()) + "\n";
 
-                // Use 'joint_states' as the object key
-                rapidjson::Value js_obj(rapidjson::kObjectType);
-                js_obj.AddMember("position", current_pos, allocator); // Single float or double
-
-                d.AddMember("joint_states", js_obj, allocator);
-
-                // Serialize
-                rapidjson::StringBuffer buffer;
-                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
-                d.Accept(writer);
-
-                std::string feedback = std::string(buffer.GetString()) + "\n";
-                
-                //
-                if (write(clt, feedback.c_str(), feedback.length()) < 0) {
-                    RCLCPP_ERROR(this->get_logger(), "Write failed for %s. Closing session.", caller_id.c_str());
-                    break;
-                }
+            if (write(clt, feedback.c_str(), feedback.length()) < 0) {
+                RCLCPP_ERROR(this->get_logger(), "Write failed for %s. Closing session.", caller_id.c_str());
+                break;
+            }
+        } else {
+            if (n == 0) {
+                RCLCPP_INFO(this->get_logger(), "Controller %s disconnected gracefully.", caller_id.c_str());
             } else {
-                // n <= 0 means the Ziti SDK has closed the session or timed it out internally
-                if (n == 0) {
-                    RCLCPP_INFO(this->get_logger(), "Controller %s disconnected gracefully.", caller_id.c_str());
-                } else {
-                    RCLCPP_WARN(this->get_logger(), "Socket closed for %s (n=%ld).", caller_id.c_str(), n);
-                }
-                break; 
+                RCLCPP_WARN(this->get_logger(), "Socket closed for %s (n=%ld).", caller_id.c_str(), n);
             }
+            break;
         }
-
-        // Safety: If the loop breaks, the controller is gone. Send a STOP to be safe.
-        if (!last_active_ns.empty()) {
-            auto stop_msg = geometry_msgs::msg::Twist();
-            std::lock_guard<std::mutex> lock(data_mutex_);
-            std::string cmd_topic = "/" + last_active_ns + "/cmd_vel";
-            if (pubs_.count(cmd_topic)) {
-                pubs_[cmd_topic]->publish(stop_msg);
-                RCLCPP_INFO(this->get_logger(), "Safety Stop sent to %s", last_active_ns.c_str());
-            }
-        }
-
-        close(clt);
     }
 
+    // Safety: If the loop breaks, the controller is gone. Send a STOP to be safe.
+    if (!last_active_ns.empty()) {
+        auto stop_msg = geometry_msgs::msg::Twist();
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        std::string cmd_topic = "/" + last_active_ns + "/cmd_vel";
+        if (pubs_.count(cmd_topic)) {
+            pubs_[cmd_topic]->publish(stop_msg);
+            RCLCPP_INFO(this->get_logger(), "Safety Stop sent to %s", last_active_ns.c_str());
+        }
+    }
+
+    close(clt);
+}
+
 private:
+    //ziti context and socket
     ziti_handle_t ztx_handle_ = 0;
     ziti_socket_t srv_cmd_ = -1;
     std::string ziti_id_name_;
     std::string ziti_service_name_;
     std::string ziti_context_path_;
+    // Threading and session management
     std::thread ziti_thread_;
+    std::mutex session_mutex_;
+    std::vector<std::thread> session_threads_;
+    // ROS2
     rclcpp::TimerBase::SharedPtr init_timer_;
     std::mutex data_mutex_;
     std::map<std::string, rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr> pubs_;
     std::map<std::string, rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr> subs_;
     std::map<std::string, double> robot_positions_;
+    
 };
 
 void signal_handler(int signum) {
