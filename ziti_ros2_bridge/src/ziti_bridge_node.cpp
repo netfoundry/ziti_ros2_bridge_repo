@@ -133,7 +133,6 @@ public:
                     }
                 });
 
-        // ── Step 3: insert + publish under lock ──
         {
             std::lock_guard<std::mutex> lock(data_mutex_);
             if (need_pub && pubs_.find(full_topic) == pubs_.end())
