@@ -108,9 +108,10 @@ This demo utilizes a **NetFoundry Managed Network** to provide a secure, global 
 
 1. **NetFoundry Network:** Create a NetFoundry Network with at least one **NF Hosted Edge Router** in the same geographic region as the Robot and control sites.
 2. **Identity Creation:** Create two identities in the NetFoundry Console (`pilot1` and `robot1`).
-3. **Service Config:** Define a **SDK-to-SDK service** named `ros2.control.svc` (a Service with no configs attached).
-4. **Service Policies:** * Create a **Dial Policy** linking the `pilot1` identity to the service.
-    * Create a **Bind Policy** linking the `robot1` identity to the `ros2.control.svc`.
+3. **Service Config:** Define a **SDK-to-SDK service** named `control.cmd.svc` (a Service with no configs attached).
+4. **Service Policies:** 
+    * Create a **Dial Policy** linking the `pilot1` identity to the `control.cmd.svc`.
+    * Create a **Bind Policy** linking the `robot1` identity to the `control.cmd.svc`.
 5. **Edge Router Policies:** Ensure both SDKs/Endpoints are added to an **Edge Router Policy** that includes the **NF Hosted Edge Router**.
 6. **Identity Enrollment:**
     * Download the JWTs for both endpoints from the NetFoundry Console.
