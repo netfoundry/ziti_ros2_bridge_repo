@@ -104,7 +104,8 @@ pip install openziti
 
 ## 🌐 Cloud Connectivity (NetFoundry)
 
-This demo utilizes a **NetFoundry Managed Network** to provide a secure, global zero-trust overlay.
+This demo utilizes a [NetFoundry V8 Managed Network](https://netfoundry.io/platform) to provide a secure, global zero-trust overlay.  
+(The demo can also be run over a Self-Hosted [OpenZiti](https://netfoundry.io/docs/openziti/learn/quickstarts/network/hosted/) Network as well)
 
 1. **NetFoundry Network:** Create a NetFoundry Network with at least one **NF Hosted Edge Router** in the same geographic region as the Robot and control sites.
 2. **Identity Creation:** Create two identities in the NetFoundry Console (`pilot1` and `robot1`).
@@ -112,7 +113,8 @@ This demo utilizes a **NetFoundry Managed Network** to provide a secure, global 
 4. **Service Policies:** 
     * Create a **Dial Policy** linking the `pilot1` identity to the `control.cmd.svc`.
     * Create a **Bind Policy** linking the `robot1` identity to the `control.cmd.svc`.
-5. **Edge Router Policies:** Ensure both SDKs/Endpoints are added to an **Edge Router Policy** that includes the **NF Hosted Edge Router**.
+5. **Edge Router Policies:** Ensure both SDKs/Endpoints are added to an **Edge Router Policy** that includes the **NF Hosted Edge Router**.  
+     (NetFoundry Managed V8 Networks include a default router policy that includes all identities and routers so can be skipped if it exists)
 6. **Identity Enrollment:**
     * Download the JWTs for both endpoints from the NetFoundry Console.
     * Enroll them using the latest [OpenZiti CLI](https://github.com/openziti/ziti):
@@ -120,6 +122,8 @@ This demo utilizes a **NetFoundry Managed Network** to provide a secure, global 
       ziti edge enroll pilot1.jwt -o pilot1.json
       ```
     * Place the resulting `.json` files in the `$HOME` folder on each respective machine.
+7. **Services Edge Router policy:** Create a Services Edge Router Policy with the Edge Router and Service  
+     (NetFoundry Managed networks include a default policy so this can be skipped if it exists)
 
 ## Test Service Connectivity
 
