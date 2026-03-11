@@ -104,7 +104,7 @@ pip install openziti
 
 ## 🌐 Cloud Connectivity (NetFoundry)
 
-This demo utilizes a [NetFoundry Managed Network](https://netfoundry.io/platform) to provide a secure, global zero-trust overlay.  
+This demo utilizes a [NetFoundry V8 Managed Network](https://netfoundry.io/platform) to provide a secure, global zero-trust overlay.  
 (The demo can also be run over a Self-Hosted [OpenZiti](https://netfoundry.io/docs/openziti/learn/quickstarts/network/hosted/) Network as well)
 
 1. **NetFoundry Network:** Create a NetFoundry Network with at least one **NF Hosted Edge Router** in the same geographic region as the Robot and control sites.
