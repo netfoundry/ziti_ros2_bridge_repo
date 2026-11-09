@@ -5,7 +5,7 @@ set -e
 
 echo "--- Starting Robot Environment Setup (Jazzy + CycloneDDS) ---"
 # 1. Update and install initial requirements
-sudo apt update && sudo apt install -y curl gnupg2 lsb-release build-essential git
+sudo apt update && sudo apt install -y curl gnupg2 lsb-release build-essential git autoconf autoconf-archive automake
 if [ ! -d "$HOME/ros2_ws" ]; then
     mkdir -p "$HOME/ros2_ws"
 fi
