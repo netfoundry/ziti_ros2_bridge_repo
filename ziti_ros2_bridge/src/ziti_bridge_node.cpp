@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <cerrno>
 #include <unistd.h>
 #include "rapidjson/document.h"
 #include "rapidjson/error/en.h"
@@ -164,6 +165,13 @@ public:
             }
 
             if (clt >= 0) {
+                // Newer ziti-sdk-c releases (>= ~1.11) hand back the accepted socket with
+                // O_NONBLOCK still set. handle_session() uses blocking read(), so force
+                // blocking mode to behave the same on every SDK version.
+                int flags = fcntl(clt, F_GETFL, 0);
+                if (flags >= 0 && (flags & O_NONBLOCK)) {
+                    fcntl(clt, F_SETFL, flags & ~O_NONBLOCK);
+                }
                 std::string caller_id(caller);
                 
                 // THE RESTORED LOG:
@@ -188,6 +196,8 @@ public:
 
     while (rclcpp::ok()) {
         ssize_t n = read(clt, buf, sizeof(buf) - 1);
+
+        if (n < 0 && errno == EINTR) continue;
 
         if (n > 0) {
             accum.append(buf, n);       // ← append raw bytes to accumulator
@@ -234,7 +244,8 @@ public:
             if (n == 0) {
                 RCLCPP_INFO(this->get_logger(), "Controller %s disconnected gracefully.", caller_id.c_str());
             } else {
-                RCLCPP_WARN(this->get_logger(), "Socket closed for %s (n=%ld).", caller_id.c_str(), n);
+                RCLCPP_WARN(this->get_logger(), "Socket closed for %s (n=%ld, errno=%d: %s).",
+                            caller_id.c_str(), n, errno, strerror(errno));
             }
             break;
         }
@@ -299,6 +310,9 @@ int main(int argc, char **argv) {
     // Register handlers before ROS init
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
+    // A write to a socket whose peer already closed must not kill the whole bridge;
+    // let write() return EPIPE so only that session ends.
+    signal(SIGPIPE, SIG_IGN);
 
     rclcpp::init(argc, argv);
     Ziti_lib_init();
