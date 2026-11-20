@@ -4,6 +4,7 @@
 #include <thread>
 #include <mutex>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 #include <cstring>
@@ -150,6 +151,60 @@ public:
         return "";
     }
 
+    // Namespaces of robots visible on this bridge's DDS domain.
+    // A namespace counts only if a robot is actually on the other end:
+    // something publishing /<ns>/joint_states or subscribed to /<ns>/cmd_vel.
+    // (The bridge itself only subscribes joint_states and publishes cmd_vel,
+    // so its own endpoints never make a namespace show up.)
+    std::vector<std::string> discover_namespaces() {
+        static const std::string kJoint = "/joint_states";
+        static const std::string kCmd   = "/cmd_vel";
+        std::set<std::string> found;
+
+        auto ends_with = [](const std::string& s, const std::string& suffix) {
+            return s.size() > suffix.size() + 1 &&
+                   s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+        };
+
+        for (const auto& [name, types] : this->get_topic_names_and_types()) {
+            if (name.empty() || name[0] != '/') continue;
+            std::string ns;
+            if (ends_with(name, kJoint) && this->count_publishers(name) > 0) {
+                ns = name.substr(1, name.size() - kJoint.size() - 1);
+            } else if (ends_with(name, kCmd) && this->count_subscribers(name) > 0) {
+                ns = name.substr(1, name.size() - kCmd.size() - 1);
+            }
+            if (!ns.empty()) found.insert(ns);
+        }
+        return {found.begin(), found.end()};
+    }
+
+    std::string build_ns_list_reply() {
+        rapidjson::Document d;
+        d.SetObject();
+        auto& alloc = d.GetAllocator();
+        d.AddMember("type", "ns_list", alloc);
+        rapidjson::Value arr(rapidjson::kArrayType);
+        for (const auto& ns : discover_namespaces()) {
+            arr.PushBack(rapidjson::Value(ns.c_str(), alloc).Move(), alloc);
+        }
+        d.AddMember("namespaces", arr, alloc);
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        d.Accept(writer);
+        return std::string(buffer.GetString()) + "\n";
+    }
+
+    // True if the message is a bridge-level request (e.g. {"cmd":"list_ns"}).
+    // Drive commands have no "cmd" field and still require "ns" + "topic".
+    bool is_list_ns_request(const std::string& msg) {
+        rapidjson::Document d;
+        if (d.Parse(msg.c_str()).HasParseError() || !d.IsObject()) return false;
+        return d.HasMember("cmd") && d["cmd"].IsString() &&
+               std::strcmp(d["cmd"].GetString(), "list_ns") == 0;
+    }
+
     void run_ziti_cmd_loop() {
     RCLCPP_INFO(this->get_logger(), "Ziti Bridge is READY for multiple controllers.");
     
@@ -203,14 +258,39 @@ public:
             accum.append(buf, n);       // ← append raw bytes to accumulator
 
             // Process all complete newline-delimited messages in the buffer
+            bool drive_cmd_seen = false;
+            bool write_failed = false;
             size_t pos;
             while ((pos = accum.find('\n')) != std::string::npos) {
                 std::string msg = accum.substr(0, pos);
                 accum.erase(0, pos + 1);
 
                 if (msg.empty()) continue;
-                last_active_ns = process_command(msg.data());
+
+                if (is_list_ns_request(msg)) {
+                    std::string reply = build_ns_list_reply();
+                    RCLCPP_INFO(this->get_logger(), "list_ns requested by %s", caller_id.c_str());
+                    if (write(clt, reply.c_str(), reply.length()) < 0) {
+                        write_failed = true;
+                        break;
+                    }
+                    continue;
+                }
+
+                std::string ns = process_command(msg.data());
+                if (!ns.empty()) {
+                    last_active_ns = ns;
+                    drive_cmd_seen = true;
+                }
             }
+
+            if (write_failed) {
+                RCLCPP_ERROR(this->get_logger(), "Write failed for %s. Closing session.", caller_id.c_str());
+                break;
+            }
+
+            // Telemetry is only sent in response to drive commands
+            if (!drive_cmd_seen) continue;
 
             // Fetch Telemetry
             double current_pos = 0.0;
@@ -225,7 +305,8 @@ public:
             rapidjson::Document d;
             d.SetObject();
             rapidjson::Document::AllocatorType& allocator = d.GetAllocator();
-            d.AddMember("ns", rapidjson::Value(last_active_ns.c_str(), allocator).Move(), allocator);
+            d.AddMember("type", "telemetry", allocator);
+            d.AddMember("ns",rapidjson::Value(last_active_ns.c_str(), allocator).Move(), allocator);
             rapidjson::Value js_obj(rapidjson::kObjectType);
             js_obj.AddMember("position", current_pos, allocator);
             d.AddMember("joint_states", js_obj, allocator);

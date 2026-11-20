@@ -180,6 +180,19 @@ This demo utilizes a [NetFoundry V8 Managed Network](https://netfoundry.io/platf
 
 ### Appendix
 
+### Remote namespace discovery from pilot
+
+```bash
+python3 demo_controller.py --id_json ~/pilot1.json --primary_gw robot1 --service control.cmd.svc --list_ns
+```
+Sample output:
+
+```bash
+[robot1] 2 namespace(s) discovered:
+  robot1
+  robot2
+```
+
 ### (Optional) The "Fleet Gateway" (Subtending Robots) 
 In this mode, the Ziti-enabled robot acts as a **Secure Ingress** for other robots on the same local subnet that do **not** have their own Ziti identities. Direct commands to them by namespace.
 * **Gateway Logic:** The Bridge listens on both `lo` (for the host) and a physical interface (e.g., `wlan0`).

@@ -6,20 +6,70 @@ import select
 import sys
 import argparse
 
+def list_namespaces(ztx, service, gateway, timeout=5.0):
+    """Ask the gateway bridge which robot namespaces it can see on its ROS 2 bus."""
+    print(f"[Dials] {gateway}...")
+    try:
+        conn = ztx.connect(service, gateway)
+    except Exception as e:
+        print(f"[Error] Could not connect to {gateway}: {e}")
+        return 1
+
+    try:
+        conn.send((json.dumps({"cmd": "list_ns"}) + "\n").encode())
+        buffer = ""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            r, _, _ = select.select([conn], [], [], deadline - time.time())
+            if not r:
+                break
+            chunk = conn.recv(4096).decode("utf-8", errors="ignore")
+            if not chunk:
+                print("[Error] Gateway closed the connection")
+                return 1
+            buffer += chunk
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                try:
+                    data = json.loads(line)
+                except ValueError:
+                    continue
+                if data.get("type") == "ns_list":
+                    namespaces = data.get("namespaces", [])
+                    print(f"[{gateway}] {len(namespaces)} namespace(s) discovered:")
+                    for ns in namespaces:
+                        print(f"  {ns}")
+                    return 0
+        print(f"[Error] No reply from {gateway} within {timeout:.0f}s "
+              "(bridge may be an older build without list_ns support)")
+        return 1
+    finally:
+        conn.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Ziti Robotics Mission Control")
     parser.add_argument("--id_json", required=True)
     parser.add_argument("--primary_gw", required=True)
-    parser.add_argument("--ns", required=True)
+    parser.add_argument("--ns", help="robot namespace to drive (required unless --list_ns)")
     parser.add_argument("--service", required=True)
     parser.add_argument("--backup_gw", default=None)
+    parser.add_argument("--list_ns", action="store_true",
+                        help="list robot namespaces discovered by the gateway and exit")
     args = parser.parse_args()
+
+    if not args.list_ns and not args.ns:
+        parser.error("--ns is required unless --list_ns is given")
+
+    ztx, _ = openziti.load(args.id_json)
+
+    if args.list_ns:
+        sys.exit(list_namespaces(ztx, args.service, args.primary_gw))
 
     GW_LIST = [args.primary_gw]
     if args.backup_gw:
         GW_LIST.append(args.backup_gw)
 
-    ztx, _ = openziti.load(args.id_json)
     current_gw_idx = 0
     conn = None
     buffer = ""
